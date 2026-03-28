@@ -14,9 +14,8 @@ export default function RootLayout({
 }) {
   return (
     <html lang="fr">
-      <body className="font-sans antialiased">
+      <body>
         {children}
-        <Toaster />
       </body>
     </html>
   );
