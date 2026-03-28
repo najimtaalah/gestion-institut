@@ -1,0 +1,708 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────
+
+enum UserRole {
+  SUPER_ADMIN
+  ESTABLISHMENT_ADMIN
+  PEDAGOGICAL_MANAGER
+  LEVEL_MANAGER
+  FINANCIAL_MANAGER
+  TEACHER
+}
+
+enum StudentStatus {
+  ACTIVE
+  SUSPENDED
+  GRADUATED
+  WITHDRAWN
+  ARCHIVED
+}
+
+enum CourseType {
+  PRESENTIAL
+  REMOTE
+  HYBRID
+}
+
+enum SessionStatus {
+  PLANNED
+  DONE
+  CANCELLED
+  POSTPONED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+}
+
+enum EvaluationType {
+  EXAM
+  TEST
+  CONTINUOUS
+  PROJECT
+  ORAL
+  OTHER
+}
+
+enum BulletinStatus {
+  DRAFT
+  VALIDATED
+  ARCHIVED
+}
+
+enum InstallmentStatus {
+  PENDING
+  PARTIAL
+  PAID
+  LATE
+  UNPAID
+}
+
+enum ReminderType {
+  AUTO
+  MANUAL
+}
+
+enum ReminderChannel {
+  EMAIL
+  SMS
+  PHONE
+  IN_PERSON
+  OTHER
+}
+
+enum BulletinPeriodStatus {
+  OPEN
+  CLOSED
+}
+
+// ─────────────────────────────────────────────
+// UTILISATEURS ET AUTH
+// ─────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String
+  passwordHash  String
+  role          UserRole  @default(TEACHER)
+  isActive      Boolean   @default(true)
+  avatarUrl     String?
+
+  // Périmètre multi-établissements
+  establishments UserEstablishment[]
+
+  // Périmètre pédagogique fin
+  levelAccess    UserLevelAccess[]
+  classAccess    UserClassAccess[]
+  subjectAccess  UserSubjectAccess[]
+
+  // Relations métier
+  taughtClasses  CourseAssignment[]
+  sessionsLed    Session[]          @relation("SessionTeacher")
+  grades         Grade[]            @relation("GradeCreator")
+  attendances    Attendance[]       @relation("AttendanceCreator")
+  reminders      Reminder[]         @relation("ReminderAuthor")
+  auditLogs      AuditLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+  @@index([role])
+}
+
+// Association utilisateur ↔ établissement
+model UserEstablishment {
+  id              String        @id @default(cuid())
+  userId          String
+  establishmentId String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  establishment   Establishment @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, establishmentId])
+  @@index([userId])
+  @@index([establishmentId])
+}
+
+// Périmètre niveau
+model UserLevelAccess {
+  id      String @id @default(cuid())
+  userId  String
+  levelId String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  level   Level  @relation(fields: [levelId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, levelId])
+}
+
+// Périmètre classe
+model UserClassAccess {
+  id      String @id @default(cuid())
+  userId  String
+  classId String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  class   Class  @relation(fields: [classId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, classId])
+}
+
+// Périmètre matière
+model UserSubjectAccess {
+  id        String  @id @default(cuid())
+  userId    String
+  subjectId String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject   Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, subjectId])
+}
+
+// ─────────────────────────────────────────────
+// ÉTABLISSEMENTS
+// ─────────────────────────────────────────────
+
+model Establishment {
+  id        String  @id @default(cuid())
+  name      String
+  code      String  @unique
+  address   String?
+  city      String?
+  phone     String?
+  email     String?
+  logoUrl   String?
+  isActive  Boolean @default(true)
+  notes     String?
+
+  users     UserEstablishment[]
+  levels    Level[]
+  classes   Class[]
+  rooms     Room[]
+  courses   Course[]
+  students  Student[]
+  bulletinPeriods BulletinPeriod[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([code])
+}
+
+// ─────────────────────────────────────────────
+// ORGANISATION PÉDAGOGIQUE
+// ─────────────────────────────────────────────
+
+model Level {
+  id              String        @id @default(cuid())
+  name            String
+  order           Int           @default(0)
+  establishmentId String
+  establishment   Establishment @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+
+  fields    Field[]
+  classes   Class[]
+  students  Student[]
+  userAccess UserLevelAccess[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([establishmentId])
+}
+
+model Field {
+  id       String  @id @default(cuid())
+  name     String
+  code     String?
+  levelId  String
+  level    Level   @relation(fields: [levelId], references: [id], onDelete: Cascade)
+
+  students Student[]
+  classes  Class[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([levelId])
+}
+
+model Class {
+  id              String        @id @default(cuid())
+  name            String
+  capacity        Int?
+  levelId         String
+  level           Level         @relation(fields: [levelId], references: [id], onDelete: Cascade)
+  fieldId         String?
+  field           Field?        @relation(fields: [fieldId], references: [id])
+  establishmentId String
+  establishment   Establishment @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+
+  groups          Group[]
+  students        Student[]
+  courses         Course[]
+  userAccess      UserClassAccess[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([establishmentId])
+  @@index([levelId])
+}
+
+model Group {
+  id      String  @id @default(cuid())
+  name    String
+  classId String
+  class   Class   @relation(fields: [classId], references: [id], onDelete: Cascade)
+
+  students Student[]
+  courses  Course[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([classId])
+}
+
+model Subject {
+  id          String  @id @default(cuid())
+  name        String
+  code        String?
+  coefficient Float   @default(1)
+  color       String? // couleur pour l'affichage planning
+
+  courses     Course[]
+  evaluations Evaluation[]
+  userAccess  UserSubjectAccess[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// SALLES
+// ─────────────────────────────────────────────
+
+model Room {
+  id              String        @id @default(cuid())
+  name            String
+  capacity        Int?
+  location        String?
+  equipment       String?
+  isActive        Boolean       @default(true)
+  establishmentId String
+  establishment   Establishment @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+
+  sessions Session[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([establishmentId])
+}
+
+// ─────────────────────────────────────────────
+// PLANNING — COURS ET SÉANCES
+// ─────────────────────────────────────────────
+
+model Course {
+  id              String        @id @default(cuid())
+  title           String?
+  type            CourseType    @default(PRESENTIAL)
+  dayOfWeek       Int?          // 0=dim, 1=lun … 6=sam (pour récurrences)
+  startTime       String        // "HH:mm"
+  endTime         String        // "HH:mm"
+  startDate       DateTime      // début de validité
+  endDate         DateTime?     // fin de validité (null = indéfini)
+  isRecurring     Boolean       @default(false)
+  visioLink       String?
+  notes           String?
+  isActive        Boolean       @default(true)
+
+  establishmentId String
+  establishment   Establishment @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+  classId         String
+  class           Class         @relation(fields: [classId], references: [id], onDelete: Cascade)
+  groupId         String?
+  group           Group?        @relation(fields: [groupId], references: [id])
+  subjectId       String
+  subject         Subject       @relation(fields: [subjectId], references: [id])
+
+  assignments CourseAssignment[]
+  sessions    Session[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([establishmentId])
+  @@index([classId])
+  @@index([subjectId])
+}
+
+// Affectation professeur → cours
+model CourseAssignment {
+  id        String  @id @default(cuid())
+  courseId  String
+  course    Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  teacherId String
+  teacher   User    @relation(fields: [teacherId], references: [id])
+  isPrimary Boolean @default(true)
+
+  @@unique([courseId, teacherId])
+  @@index([teacherId])
+}
+
+model Session {
+  id          String        @id @default(cuid())
+  date        DateTime      // date+heure début
+  endTime     DateTime      // heure fin
+  status      SessionStatus @default(PLANNED)
+  type        CourseType    @default(PRESENTIAL)
+  visioLink   String?
+  notes       String?       // résumé du contenu dispensé
+  incident    String?
+  cancelReason String?
+
+  courseId    String
+  course      Course     @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  roomId      String?
+  room        Room?      @relation(fields: [roomId], references: [id])
+  teacherId   String?
+  teacher     User?      @relation("SessionTeacher", fields: [teacherId], references: [id])
+
+  attendances Attendance[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([courseId])
+  @@index([date])
+  @@index([teacherId])
+  @@index([roomId])
+}
+
+// ─────────────────────────────────────────────
+// ÉTUDIANTS
+// ─────────────────────────────────────────────
+
+model Student {
+  id              String        @id @default(cuid())
+  studentCode     String        @unique // identifiant technique ex: STU-2024-00001
+  firstName       String
+  lastName        String
+  email           String?
+  phone           String?
+  dateOfBirth     DateTime?
+  address         String?
+  city            String?
+  status          StudentStatus @default(ACTIVE)
+  enrolledAt      DateTime      @default(now())
+  notes           String?
+
+  establishmentId String
+  establishment   Establishment @relation(fields: [establishmentId], references: [id])
+  levelId         String?
+  level           Level?        @relation(fields: [levelId], references: [id])
+  classId         String?
+  class           Class?        @relation(fields: [classId], references: [id])
+  groupId         String?
+  group           Group?        @relation(fields: [groupId], references: [id])
+  fieldId         String?
+  field           Field?        @relation(fields: [fieldId], references: [id])
+
+  attendances     Attendance[]
+  grades          Grade[]
+  bulletins       Bulletin[]
+  financingPlans  FinancingPlan[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([establishmentId])
+  @@index([classId])
+  @@index([levelId])
+  @@index([studentCode])
+  @@index([status])
+}
+
+// ─────────────────────────────────────────────
+// PRÉSENCES ET RETARDS
+// ─────────────────────────────────────────────
+
+model Attendance {
+  id         String           @id @default(cuid())
+  status     AttendanceStatus @default(PRESENT)
+  lateMinutes Int?            // minutes de retard
+  comment    String?
+  justified  Boolean          @default(false)
+
+  sessionId  String
+  session    Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  studentId  String
+  student    Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  createdById String
+  createdBy  User     @relation("AttendanceCreator", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([sessionId, studentId])
+  @@index([studentId])
+  @@index([sessionId])
+}
+
+// ─────────────────────────────────────────────
+// ÉVALUATIONS ET NOTES
+// ─────────────────────────────────────────────
+
+model Evaluation {
+  id          String         @id @default(cuid())
+  title       String
+  type        EvaluationType @default(EXAM)
+  date        DateTime
+  maxScore    Float          @default(20)
+  coefficient Float          @default(1)
+  period      String?        // ex: "S1", "T1", "2024-2025"
+  notes       String?
+
+  subjectId   String
+  subject     Subject @relation(fields: [subjectId], references: [id])
+  classId     String?
+
+  grades Grade[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([subjectId])
+  @@index([classId])
+}
+
+model Grade {
+  id           String  @id @default(cuid())
+  score        Float
+  comment      String?
+  isAbsent     Boolean @default(false)
+
+  evaluationId String
+  evaluation   Evaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  studentId    String
+  student      Student    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  createdById  String
+  createdBy    User       @relation("GradeCreator", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([evaluationId, studentId])
+  @@index([studentId])
+  @@index([evaluationId])
+}
+
+// ─────────────────────────────────────────────
+// BULLETINS
+// ─────────────────────────────────────────────
+
+model BulletinPeriod {
+  id              String               @id @default(cuid())
+  name            String               // ex: "Semestre 1 — 2024/2025"
+  periodCode      String               // ex: "S1", "T2"
+  academicYear    String               // ex: "2024-2025"
+  startDate       DateTime
+  endDate         DateTime
+  status          BulletinPeriodStatus @default(OPEN)
+  establishmentId String
+  establishment   Establishment        @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+
+  bulletins Bulletin[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([establishmentId])
+  @@unique([establishmentId, periodCode, academicYear])
+}
+
+model Bulletin {
+  id             String         @id @default(cuid())
+  status         BulletinStatus @default(DRAFT)
+
+  // Données calculées (pré-remplies, ajustables)
+  overallAverage Float?
+  rank           Int?
+  totalStudents  Int?
+  totalAbsences  Int?
+  totalLates     Int?
+  generalComment String?        // appréciation générale éditable
+  teacherComment String?        // commentaire du professeur principal
+
+  // Données exportées
+  pdfUrl         String?        // chemin vers le PDF archivé
+  validatedAt    DateTime?
+  validatedById  String?
+
+  studentId        String
+  student          Student        @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  bulletinPeriodId String
+  bulletinPeriod   BulletinPeriod @relation(fields: [bulletinPeriodId], references: [id], onDelete: Cascade)
+
+  subjectLines BulletinSubjectLine[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([studentId, bulletinPeriodId])
+  @@index([studentId])
+  @@index([bulletinPeriodId])
+  @@index([status])
+}
+
+// Ligne matière dans le bulletin (pré-calculée, éditable)
+model BulletinSubjectLine {
+  id          String  @id @default(cuid())
+  subjectName String
+  coefficient Float
+  average     Float?
+  minClass    Float?
+  maxClass    Float?
+  comment     String? // appréciation matière éditable
+
+  bulletinId String
+  bulletin   Bulletin @relation(fields: [bulletinId], references: [id], onDelete: Cascade)
+
+  @@index([bulletinId])
+}
+
+// ─────────────────────────────────────────────
+// FINANCE
+// ─────────────────────────────────────────────
+
+model FinancingPlan {
+  id          String  @id @default(cuid())
+  label       String  // ex: "Financement 2024-2025"
+  totalAmount Float
+  paidAmount  Float   @default(0)
+  notes       String?
+  isActive    Boolean @default(true)
+
+  studentId   String
+  student     Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  installments Installment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([studentId])
+}
+
+model Installment {
+  id              String            @id @default(cuid())
+  label           String            // ex: "Échéance 1 — Octobre 2024"
+  dueDate         DateTime
+  amount          Float
+  paidAmount      Float             @default(0)
+  status          InstallmentStatus @default(PENDING)
+  notes           String?
+
+  financingPlanId String
+  financingPlan   FinancingPlan @relation(fields: [financingPlanId], references: [id], onDelete: Cascade)
+
+  payments  Payment[]
+  reminders Reminder[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([financingPlanId])
+  @@index([dueDate])
+  @@index([status])
+}
+
+model Payment {
+  id            String   @id @default(cuid())
+  amount        Float
+  paidAt        DateTime
+  method        String?  // espèces, virement, chèque…
+  reference     String?
+  notes         String?
+
+  installmentId String
+  installment   Installment @relation(fields: [installmentId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([installmentId])
+  @@index([paidAt])
+}
+
+model Reminder {
+  id            String          @id @default(cuid())
+  type          ReminderType    @default(MANUAL)
+  channel       ReminderChannel @default(EMAIL)
+  sentAt        DateTime        @default(now())
+  comment       String?
+  isEffective   Boolean         @default(false) // la relance a-t-elle abouti ?
+
+  installmentId String
+  installment   Installment @relation(fields: [installmentId], references: [id], onDelete: Cascade)
+  authorId      String?
+  author        User?       @relation("ReminderAuthor", fields: [authorId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([installmentId])
+}
+
+// ─────────────────────────────────────────────
+// PARAMÈTRES — RÈGLES RELANCES AUTO
+// ─────────────────────────────────────────────
+
+model ReminderRule {
+  id              String          @id @default(cuid())
+  name            String
+  daysAfterDueDate Int            // J+X après l'échéance
+  channel         ReminderChannel @default(EMAIL)
+  messageTemplate String?
+  isActive        Boolean         @default(true)
+  establishmentId String?         // null = global
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// AUDIT LOG
+// ─────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  action     String   // CREATE, UPDATE, DELETE, LOGIN, LOGOUT…
+  entity     String   // Student, User, Payment…
+  entityId   String?
+  changes    Json?    // diff before/after
+  ipAddress  String?
+  userAgent  String?
+
+  userId String?
+  user   User?  @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([entity, entityId])
+  @@index([createdAt])
+}
