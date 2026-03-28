@@ -4,7 +4,7 @@ import * as ToastPrimitive from "@radix-ui/react-toast";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const RadixToastProvider = ToastPrimitive.Provider;
+const ToastProvider = ToastPrimitive.Provider;
 const ToastViewport = React.forwardRef<
   React.ElementRef<typeof ToastPrimitive.Viewport>,
   React.ComponentPropsWithoutRef<typeof ToastPrimitive.Viewport>
@@ -71,25 +71,16 @@ const ToastClose = React.forwardRef<
 ));
 ToastClose.displayName = ToastPrimitive.Close.displayName;
 
-// Context
+// Hook simplifié
 type ToastMessage = { title: string; description?: string; variant?: "default" | "destructive" | "success" };
-type ToastContextType = {
-  toast: (msg: ToastMessage) => void;
-  toasts: (ToastMessage & { id: string })[];
-};
-
-const ToastContext = React.createContext<ToastContextType>({
-  toast: () => {},
-  toasts: [],
-});
+type ToastContextType = { toast: (msg: ToastMessage) => void };
+const ToastContext = React.createContext<ToastContextType>({ toast: () => {} });
 
 export function useToast() {
-  const { toast } = React.useContext(ToastContext);
-  return { toast };
+  return React.useContext(ToastContext);
 }
 
-// Provider — wraps the app, holds toast state, SSR-safe (no Radix UI hooks)
-export function ToastProvider({ children }: { children: React.ReactNode }) {
+export function Toaster() {
   const [toasts, setToasts] = React.useState<(ToastMessage & { id: string })[]>([]);
 
   const addToast = React.useCallback((msg: ToastMessage) => {
@@ -99,32 +90,19 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <ToastContext.Provider value={{ toast: addToast, toasts }}>
-      {children}
+    <ToastContext.Provider value={{ toast: addToast }}>
+      <ToastProvider>
+        {toasts.map((t) => (
+          <Toast key={t.id} variant={t.variant} open>
+            <div>
+              <ToastTitle>{t.title}</ToastTitle>
+              {t.description && <ToastDescription>{t.description}</ToastDescription>}
+            </div>
+            <ToastClose />
+          </Toast>
+        ))}
+        <ToastViewport />
+      </ToastProvider>
     </ToastContext.Provider>
   );
-}
-
-// Display — renders the actual Radix UI toasts, loaded client-only (ssr: false)
-export function ToastDisplay() {
-  const { toasts } = React.useContext(ToastContext);
-  return (
-    <RadixToastProvider>
-      {toasts.map((t) => (
-        <Toast key={t.id} variant={t.variant} open>
-          <div>
-            <ToastTitle>{t.title}</ToastTitle>
-            {t.description && <ToastDescription>{t.description}</ToastDescription>}
-          </div>
-          <ToastClose />
-        </Toast>
-      ))}
-      <ToastViewport />
-    </RadixToastProvider>
-  );
-}
-
-// Kept for backward compatibility — no-op since ToastDisplay is dynamically imported
-export function Toaster() {
-  return null;
 }

@@ -1,6 +1,13 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { Toaster } from "@/components/ui/toaster";
+import dynamic from "next/dynamic";
+import { ToastProvider } from "@/components/ui/toaster";
+
+// ToastDisplay uses @radix-ui/react-toast which breaks SSR prerendering — client-only
+const ToastDisplay = dynamic(
+  () => import("@/components/ui/toaster").then((m) => m.ToastDisplay),
+  { ssr: false }
+);
 
 export const metadata: Metadata = {
   title: "EduAdmin — Gestion de l'Institut",
@@ -15,8 +22,10 @@ export default function RootLayout({
   return (
     <html lang="fr">
       <body>
-        {children}
-        <Toaster />
+        <ToastProvider>
+          {children}
+          <ToastDisplay />
+        </ToastProvider>
       </body>
     </html>
   );

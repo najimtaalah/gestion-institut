@@ -1,0 +1,1 @@
+export { default } from "./session-detail-wrapper";
