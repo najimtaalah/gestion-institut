@@ -120,7 +120,7 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <Suspense>
+    <Suspense fallback={null}>
       <LoginForm />
     </Suspense>
   );
